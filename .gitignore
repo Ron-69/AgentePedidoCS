@@ -1,0 +1,20 @@
+# Visual Studio Code
+.vscode/
+
+# Binaries for projects
+[Bb]in/
+[Oo]bj/
+
+# User secrets (for development)
+appsettings.Development.json
+.env
+
+# NuGet packages
+*.nupkg
+
+# Test Results
+TestResults/
+
+# Azure Machine Learning related files
+.amlignore
+.amlignore.amlt
