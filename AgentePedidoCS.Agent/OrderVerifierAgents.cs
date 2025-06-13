@@ -61,6 +61,7 @@ namespace AgentePedidoCS.Agent
             // Importa a classe OrderStatusTool como um plugin/ferramenta no Kernel.
             // O nome "OrderStatusTool" aqui será usado pelo LLM para se referir a este conjunto de funções.
             _kernel.ImportPluginFromObject(new OrderStatusTool(), "OrderStatusTool");
+            _kernel.ImportPluginFromObject(new BatchOrderTool(), "BatchOrderTool"); // Added this line
         }
 
         /// <summary>
@@ -78,7 +79,11 @@ namespace AgentePedidoCS.Agent
             // A System Message (Mensagem de Sistema) instrui o LLM sobre seu papel e como usar as ferramentas.
             // É VITAL que o nome da ferramenta (OrderStatusTool) e da função (CheckOrderStatus) estejam aqui
             // para o LLM saber como chamá-las.
-            history.AddSystemMessage("Você é o OrderVerifierAgent, um assistente inteligente especializado em verificar o status de pedidos. Sua principal função é usar a ferramenta 'OrderStatusTool.CheckOrderStatus' para obter informações sobre pedidos quando um ID de pedido é fornecido. Responda de forma clara e concisa. Se o usuário pedir o status de um pedido, use a ferramenta. Se o ID do pedido não for fornecido ou for inválido, peça um ID de pedido válido.");
+            // Updated system message below
+            history.AddSystemMessage("Você é o OrderVerifierAgent, um assistente inteligente especializado em verificar o status de pedidos e registrar novos pedidos em lote. " +
+                                     "Use a ferramenta 'OrderStatusTool.CheckOrderStatus' para obter informações sobre pedidos existentes quando um ID de pedido é fornecido. " +
+                                     "Use a ferramenta 'BatchOrderTool.RegisterBatchOrder' para criar um novo pedido em lote quando o usuário solicitar o registro de múltiplos itens para um cliente. Você precisará extrair a lista de itens e o nome do cliente da solicitação do usuário. " +
+                                     "Responda de forma clara e concisa. Se o ID do pedido não for fornecido ou for inválido para verificação, peça um ID de pedido válido. Se informações para registrar um pedido em lote estiverem faltando, peça os detalhes necessários (itens e cliente).");
             history.AddUserMessage(userMessage); // Adiciona a mensagem atual do usuário ao histórico
 
             // 2. Configurações de Execução do Chat
