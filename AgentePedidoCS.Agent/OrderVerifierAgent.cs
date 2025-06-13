@@ -1,6 +1,7 @@
 // AgentePedidoCS/AgentePedidoCS.Agent/OrderVerifierAgent.cs
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 using AgentePedidoCS.Agent.Tools;
 using Microsoft.Extensions.Logging;
 using System;
