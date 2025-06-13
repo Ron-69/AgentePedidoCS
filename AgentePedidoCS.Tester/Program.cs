@@ -33,8 +33,16 @@ class Program
             return; // Sai do programa se o agente não puder ser inicializado
         }
 
+        // --- Teste de Registro de Pedido em Lote ---
+        Console.WriteLine("\n--- Teste de Registro de Pedido em Lote ---");
+        string batchOrderUserMessage = "Olá, gostaria de registrar um pedido em lote para o cliente 'Empresa X' com os seguintes itens: um teclado, um mouse e dois monitores.";
+        Console.WriteLine($"Usuário: {batchOrderUserMessage}");
+        string batchOrderResponse = await agent.ProcessRequestAsync(batchOrderUserMessage);
+        Console.WriteLine($"Agente: {batchOrderResponse}");
+        // --- Fim do Teste de Registro de Pedido em Lote ---
+
         // 3. Loop de Interação com o Usuário
-        Console.WriteLine("Agente pronto. Digite sua pergunta sobre o status do pedido (ou 'sair' para encerrar):");
+        Console.WriteLine("\nAgente pronto. Digite sua pergunta sobre o status do pedido (ou 'sair' para encerrar):"); // Added \n for better spacing
 
         while (true) // Loop infinito para manter o chat ativo
         {
