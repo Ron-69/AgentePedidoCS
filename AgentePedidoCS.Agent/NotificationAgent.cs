@@ -1,34 +1,48 @@
 // AgentePedidoCS/AgentePedidoCS.Agent/NotificationAgent.cs
 using Microsoft.Extensions.Logging;
+using System;
 using System.Threading.Tasks;
 
 namespace AgentePedidoCS.Agent
 {
+    /// <summary>
+    /// Agente responsável por simular o envio de notificações aos clientes.
+    /// Atualmente, ele registra as informações da notificação usando o logger injetado.
+    /// </summary>
     public class NotificationAgent
     {
-        private readonly ILogger _logger;
+        private readonly ILogger<NotificationAgent> _logger;
 
-        public NotificationAgent(ILoggerFactory loggerFactory)
+        /// <summary>
+        /// Inicializa uma nova instância da classe <see cref="NotificationAgent"/>.
+        /// </summary>
+        /// <param name="logger">O logger para esta classe.</param>
+        public NotificationAgent(ILogger<NotificationAgent> logger)
         {
-            _logger = loggerFactory.CreateLogger<NotificationAgent>();
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         /// <summary>
-        /// Simulates sending a prioritization notification to the customer.
+        /// Simula o envio de uma notificação de priorização para o cliente.
+        /// Em um cenário real, isso poderia envolver a chamada a um serviço de e-mail, SMS ou outro sistema de mensagens.
+        /// Atualmente, apenas registra a tentativa de envio e a mensagem no log.
         /// </summary>
-        /// <param name="orderId">The ID of the prioritized order.</param>
-        /// <param name="customerId">The ID of the customer.</param>
-        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <param name="orderId">O ID do pedido que foi priorizado.</param>
+        /// <param name="customerId">O ID do cliente a ser notificado.</param>
+        /// <returns>Um <see cref="Task"/> que representa a conclusão da operação assíncrona de envio (simulada).</returns>
         public async Task SendPrioritizationNotificationAsync(string orderId, string customerId)
         {
-            _logger.LogInformation($"NotificationAgent: Preparing to send prioritization notification for order '{orderId}' to customer '{customerId}'.");
+            _logger.LogInformation("NotificationAgent: Preparando para enviar notificação de priorização para o pedido \"{OrderId}\" do cliente \"{CustomerId}\".", orderId, customerId);
 
-            // Simulate sending notification
-            // In a real scenario, this would involve calling an email/SMS service, etc.
+            // Simula a construção e envio da notificação.
             string notificationMessage = $"Dear Customer {customerId}, your order {orderId} has been prioritized and will be processed with urgency.";
-            _logger.LogInformation($"NotificationAgent: Simulated notification sent: "{notificationMessage}"");
 
-            // Simulate some processing time
+            // Em um sistema real, aqui ocorreria a chamada a um serviço externo (ex: SendGrid, Twilio).
+            // Por exemplo: await _emailService.SendEmailAsync(customerEmail, "Order Prioritized", notificationMessage);
+
+            _logger.LogInformation("NotificationAgent: Notificação simulada enviada com a mensagem: \"{NotificationMessage}\"", notificationMessage);
+
+            // Simula uma pequena latência, como se estivesse aguardando a resposta de um serviço de notificação.
             await Task.Delay(50);
         }
     }
