@@ -5,7 +5,8 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Configuration;       // Para carregar configurações (appsettings.json)
 using AgentePedidoCS.Agent.Tools;               // Para importar as ferramentas que você criou
 using Microsoft.Extensions.Logging;             // Para logging
-
+using System.Linq;                              // Para LastOrDefault
+using System.Text.RegularExpressions;           // Para Regex
 
 namespace AgentePedidoCS.Agent
 {
@@ -13,12 +14,12 @@ namespace AgentePedidoCS.Agent
     {
         private readonly Kernel _kernel;        // A interface principal do Semantic Kernel
         private readonly ILogger _logger;        // Logger para mensagens de depuração/informação
+        private readonly ILoggerFactory _loggerFactory; // Adicionado para criar loggers para outros agentes
 
         public OrderVerifierAgent(IConfiguration config)
         {
             // 1. Configuração do Logger
-            // Configura o logger para mostrar mensagens no console.
-            using var loggerFactory = LoggerFactory.Create(builder =>
+            var loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning) // Filtra logs excessivos do .NET
@@ -26,14 +27,13 @@ namespace AgentePedidoCS.Agent
                     .AddConsole();                            // Adiciona o provedor de log para console
             });
             _logger = loggerFactory.CreateLogger<OrderVerifierAgent>(); // Cria um logger para esta classe
+            _loggerFactory = loggerFactory; // Store the factory for other agents
 
             // 2. Recuperar Configurações do Azure OpenAI
-            // Pega as chaves e o endpoint do Azure OpenAI das configurações carregadas (appsettings.json ou variáveis de ambiente)
             var azureOpenAiEndpoint = config["AzureOpenAI:Endpoint"];
             var azureOpenAiApiKey = config["AzureOpenAI:ApiKey"];
             var azureOpenAiDeploymentName = config["AzureOpenAI:DeploymentName"];
 
-            // Validação básica para garantir que as configurações foram encontradas
             if (string.IsNullOrEmpty(azureOpenAiEndpoint) ||
                 string.IsNullOrEmpty(azureOpenAiApiKey) ||
                 string.IsNullOrEmpty(azureOpenAiDeploymentName))
@@ -44,71 +44,102 @@ namespace AgentePedidoCS.Agent
 
             _logger.LogInformation("Inicializando o Semantic Kernel com Azure OpenAI.");
 
-            // 3. Configurar o Kernel com o Modelo de Linguagem
-            // Cria uma instância do Kernel, que é o motor do Semantic Kernel.
-            // Adiciona o conector para o Azure OpenAI Chat Completion (GPT-3.5 Turbo, GPT-4, Phi-3, etc.).
             _kernel = Kernel.CreateBuilder()
                 .AddAzureOpenAIChatCompletion(
-                    deploymentName: azureOpenAiDeploymentName, // O nome da sua implantação do modelo no Azure OpenAI Studio
-                    endpoint: azureOpenAiEndpoint,             // O endpoint do seu recurso Azure OpenAI
-                    apiKey: azureOpenAiApiKey                  // Sua chave de API
+                    deploymentName: azureOpenAiDeploymentName,
+                    endpoint: azureOpenAiEndpoint,
+                    apiKey: azureOpenAiApiKey
                 )
-                .Build(); // Constrói a instância do Kernel
+                .Build();
 
             _logger.LogInformation("Adicionando ferramentas ao Kernel.");
-
-            // 4. Adicionar a Ferramenta ao Kernel
-            // Importa a classe OrderStatusTool como um plugin/ferramenta no Kernel.
-            // O nome "OrderStatusTool" aqui será usado pelo LLM para se referir a este conjunto de funções.
             _kernel.ImportPluginFromObject(new OrderStatusTool(), "OrderStatusTool");
-            _kernel.ImportPluginFromObject(new BatchOrderTool(), "BatchOrderTool"); // Added this line
+            _kernel.ImportPluginFromObject(new BatchOrderTool(), "BatchOrderTool");
         }
 
-        /// <summary>
-        /// Processa a mensagem do usuário, interagindo com o LLM e usando ferramentas se necessário.
-        /// </summary>
-        /// <param name="userMessage">A mensagem de entrada do usuário.</param>
-        /// <returns>A resposta gerada pelo agente.</returns>
         public async Task<string> ProcessRequestAsync(string userMessage)
         {
             _logger.LogInformation($"Mensagem do usuário: {userMessage}");
 
-            // 1. Criar Histórico de Chat
-            // O histórico é crucial para manter o contexto da conversa com o LLM.
             var history = new ChatHistory();
-            // A System Message (Mensagem de Sistema) instrui o LLM sobre seu papel e como usar as ferramentas.
-            // É VITAL que o nome da ferramenta (OrderStatusTool) e da função (CheckOrderStatus) estejam aqui
-            // para o LLM saber como chamá-las.
-            // Updated system message below
             history.AddSystemMessage("Você é o OrderVerifierAgent, um assistente inteligente especializado em verificar o status de pedidos e registrar novos pedidos em lote. " +
                                      "Use a ferramenta 'OrderStatusTool.CheckOrderStatus' para obter informações sobre pedidos existentes quando um ID de pedido é fornecido. " +
+                                     "Se o status do pedido for 'Processando', informe ao usuário que você verificará a priorização e o notificará. " +
+                                     "Se o pedido não for encontrado usando a ferramenta, informe ao usuário que o pedido pode estar em processamento inicial e sugira que tente novamente mais tarde ou entre em contato por outro canal. " +
                                      "Use a ferramenta 'BatchOrderTool.RegisterBatchOrder' para criar um novo pedido em lote quando o usuário solicitar o registro de múltiplos itens para um cliente. Você precisará extrair a lista de itens e o nome do cliente da solicitação do usuário. " +
                                      "Responda de forma clara e concisa. Se o ID do pedido não for fornecido ou for inválido para verificação, peça um ID de pedido válido. Se informações para registrar um pedido em lote estiverem faltando, peça os detalhes necessários (itens e cliente).");
-            history.AddUserMessage(userMessage); // Adiciona a mensagem atual do usuário ao histórico
+            history.AddUserMessage(userMessage);
 
-            // 2. Configurações de Execução do Chat
             var promptExecutionSettings = new OpenAIPromptExecutionSettings
             {
-                MaxTokens = 500,  // Limite o número de tokens na resposta para controlar custos
-                Temperature = 0.7, // Controla a criatividade/aleatoriedade da resposta (0.0 = previsível, 1.0 = criativo)
-                // Isso é CRUCIAL: Diz ao Semantic Kernel para automaticamente invocar funções do Kernel
-                // quando o LLM decidir que uma ferramenta precisa ser usada.
+                MaxTokens = 500,
+                Temperature = 0.7,
                 ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
             };
 
             try
             {
-                // 3. Obter Resposta do LLM
-                // Pede ao serviço de chat do Kernel para gerar uma resposta baseada no histórico.
-                // O 'kernel: _kernel' é importante para que o serviço de chat tenha acesso às ferramentas que você importou.
+                // 3. Obter Resposta do LLM (que pode incluir uma chamada de ferramenta)
                 var result = await _kernel.GetRequiredService<IChatCompletionService>().GetChatMessageContentAsync(
                     history,
                     executionSettings: promptExecutionSettings,
-                    kernel: _kernel // Passa o kernel para que as ferramentas sejam acessíveis ao serviço de chat
+                    kernel: _kernel
                 );
 
-                _logger.LogInformation($"Resposta do agente: {result.Content}");
-                return result.Content ?? "Desculpe. o agente não conseguiu gerar uma resposta significativa."; // Retorna o conteúdo da resposta do LLM
+                string agentResponse = result.Content ?? "Desculpe, o agente não conseguiu gerar uma resposta significativa.";
+                _logger.LogInformation($"Resposta inicial do LLM: {agentResponse}");
+
+                string? orderIdForManualCheck = null;
+                // Regex para encontrar um ID de pedido de 5 dígitos na mensagem do usuário.
+                // A expressão @"\b\d{5}\b" garante que estamos pegando um número de 5 dígitos como uma palavra isolada.
+                var match = Regex.Match(userMessage, @"\b\d{5}\b");
+                if (match.Success)
+                {
+                    orderIdForManualCheck = match.Value;
+                    _logger.LogInformation($"Possível Order ID extraído da mensagem do usuário: {orderIdForManualCheck}");
+
+                    // Verificar manualmente o status para a lógica de priorização
+                    (string status, string item, bool found) currentOrderData = await OrderStatusTool.GetOrderStatusDataAsync(orderIdForManualCheck);
+
+                    if (!currentOrderData.found)
+                    {
+                        _logger.LogInformation($"OrderVerifierAgent: Pedido '{orderIdForManualCheck}' não encontrado. Usando mensagem de fallback do system prompt.");
+                        // O LLM já foi instruído sobre o que dizer. Se quisermos sobrescrever ou garantir:
+                        // agentResponse = $"O pedido {orderIdForManualCheck} não foi encontrado. Pode ser que ainda esteja em processamento inicial. Por favor, tente novamente mais tarde ou entre em contato conosco por outro canal.";
+                        // No entanto, o prompt do sistema já cobre isso. A resposta do LLM (result.Content) já deve ser adequada.
+                    }
+                    else if (currentOrderData.status == "Processando")
+                    {
+                        _logger.LogInformation($"OrderVerifierAgent: Pedido '{orderIdForManualCheck}' ({currentOrderData.item}) está 'Processando'. Verificando priorização.");
+                        var prioritizerAgent = new OrderPrioritizerAgent(_loggerFactory);
+
+                        // Simulando um customerId. Em um cenário real, isso viria de dados do usuário ou sessão.
+                        string customerId = (orderIdForManualCheck == "12345") ? "VIP_CUSTOMER" : "REGULAR_CUSTOMER";
+
+                        bool shouldPrioritize = await prioritizerAgent.ShouldPrioritizeAsync(currentOrderData.item, customerId);
+
+                        if (shouldPrioritize)
+                        {
+                            _logger.LogInformation($"OrderVerifierAgent: Pedido '{orderIdForManualCheck}' DEVE ser priorizado.");
+                            var notificationAgent = new NotificationAgent(_loggerFactory);
+                            await notificationAgent.SendPrioritizationNotificationAsync(orderIdForManualCheck, customerId);
+                            agentResponse = $"O status do seu pedido {orderIdForManualCheck} ('{currentOrderData.item}') é '{currentOrderData.status}'. Ele foi priorizado e você será notificado em breve.";
+                        }
+                        else
+                        {
+                            _logger.LogInformation($"OrderVerifierAgent: Pedido '{orderIdForManualCheck}' NÃO será priorizado.");
+                            agentResponse = $"O status do seu pedido {orderIdForManualCheck} ('{currentOrderData.item}') é '{currentOrderData.status}'. Ele está sendo processado normalmente.";
+                        }
+                    }
+                    // Para outros status (Enviado, Entregue, Cancelado), a resposta original do LLM (que já usou a ferramenta) é geralmente suficiente.
+                    // O LLM já foi instruído a usar OrderStatusTool.CheckOrderStatus e reportar o status.
+                    // Se o status não for "Processando", a `agentResponse` do LLM já deve conter o status correto.
+                }
+                // Se nenhum ID de pedido foi detectado na mensagem do usuário, ou se a ferramenta não foi chamada por outros motivos,
+                // a resposta original do LLM (provavelmente pedindo um ID, ou respondendo a uma saudação, etc.) é usada.
+
+                _logger.LogInformation($"Resposta final do agente: {agentResponse}");
+                return agentResponse;
             }
             catch (Exception ex)
             {
