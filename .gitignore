@@ -18,3 +18,6 @@ TestResults/
 # Azure Machine Learning related files
 .amlignore
 .amlignore.amlt
+
+# Azure Functions local settings
+AgentePedidoCS.Functions/local.settings.json
